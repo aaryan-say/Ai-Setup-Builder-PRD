@@ -245,9 +245,9 @@
   <h1>Setup Builder</h1>
   <p class="dek">Scheduled, condition-based instrument screening with AND-combined conditions, near-miss detection, and cross-setup overlap analysis.</p>
   <div class="meta-row">
-    <div>Status<strong>Draft v1.1</strong></div>
-    <div>Audience<strong>Backend Engineering</strong></div>
-    <div>Date<strong>16 Sep 2026</strong></div>
+    <div>Status<strong>v1.2 — backend &amp; frontend closed</strong></div>
+    <div>Audience<strong>Backend &amp; Frontend Engineering</strong></div>
+    <div>Date<strong>25 Sep 2026</strong></div>
     <div>Owner<strong>Aryan A.</strong></div>
     <div>Related product<strong>None — built standalone</strong></div>
   </div>
@@ -271,6 +271,8 @@
       <li><a href="#s11">11. Non‑functional notes</a></li>
       <li><a href="#s12">12. Open questions &amp; risks</a></li>
       <li><a href="#s13">13. Out of scope (v1)</a></li>
+      <li><a href="#s14">14. Frontend requirements</a></li>
+      <li><a href="#s15">15. Simulation</a></li>
     </ol>
   </nav>
 
@@ -285,6 +287,15 @@
         <div class="legend-item"><span class="tag open">Open</span> Needs a decision before launch</div>
         <div class="legend-item"><span class="tag deferred">Deferred — costing</span> Blocked on infra/cost analysis</div>
         <div class="legend-item"><span class="tag oos">Out of scope</span> Explicitly not v1</div>
+      </div>
+      <div class="changelog">
+        <h4>Revised in v1.2</h4>
+        <ul>
+          <li>Every §12 open question is resolved except the two genuinely infra-blocked ones (12.1, 12.4) — see §12 for the full resolution table.</li>
+          <li><strong>Whole-exchange universe removed</strong> (was 12.2) — dropped from §8 and moved to Out of Scope (§13); the indexed catalog (Nifty 50/100/500, All F&amp;O-eligible) covers v1's needs without the cost and T2T/surveillance-exclusion complexity.</li>
+          <li>Added <strong>§14 Frontend requirements</strong> — this document had no frontend spec before v1.2; UI behavior only existed implicitly in the simulation.</li>
+          <li>Added <strong>§15 Simulation</strong> — documents the interactive prototype as the canonical UI reference, and how it now stays in sync with this document's resolutions.</li>
+        </ul>
       </div>
       <div class="changelog">
         <h4>Revised in v1.1</h4>
@@ -368,7 +379,7 @@
         <li>Universe is chosen from a fixed catalog of types (§8) — never free-form.</li>
         <li>Single-underlying F&amp;O types require an instrument picked via search at creation time; the <em>type</em> is predefined, only the referent is user-chosen.</li>
         <li>Derivative universes resolve expiry by <strong>relative bucket</strong> (near-week / next-week / monthly / far-month), re-resolved to whichever contract currently occupies that slot on every run — never pinned to a fixed date.</li>
-        <li>Option-chain universes default to a strike band around ATM. Exact default width is <span class="tag open">Open</span> — see §12. "All strikes" is proposed as an explicit opt-in, not yet confirmed.</li>
+        <li>Option-chain universes default to a strike band of <strong>ATM ±5 strikes</strong>. "All strikes" is available as an explicit opt-in, never the default — the UI surfaces this default with an info affordance (§14.2) so the user knows it's a system assumption, not something they set. <span class="tag confirmed">Confirmed</span></li>
         <li>Watchlist- and portfolio-sourced universes resolve to that list's current contents at run start.</li>
       </ul>
 
@@ -385,6 +396,7 @@
         <li>Every condition carries a <code>pre_open_valid</code> flag. If <em>any</em> condition in a Setup is ineligible for pre-open, the <strong>entire run is blocked</strong> when scheduled inside the pre-open window — no partial evaluation — and the user is notified why. <span class="tag confirmed">Confirmed</span></li>
         <li>Watchlist-sourced universe inputs are <strong>snapshotted at run start</strong>; any output write to a bound watchlist happens only at run end — a run never observes its own in-flight writes, even when the same watchlist is both input and output. <span class="tag confirmed">Confirmed</span></li>
         <li>Consequence of the above: a Setup whose universe <em>and</em> output are the same watchlist will, under restrictive conditions, narrow that watchlist run over run — potentially to empty. This is <strong>accepted, intended behavior</strong> — no auto-reset or reseeding is required. <span class="tag confirmed">Confirmed</span></li>
+        <li>A user can also trigger an on-demand run at any time via <strong>"Run now"</strong>, independent of the schedule. It carries the same evaluation semantics as a scheduled run — full matches, near-miss, and watchlist overwrite all behave identically — and does not reset or otherwise disturb the timing of the next scheduled run. <code>Run.trigger</code> records <code>'scheduled' | 'manual'</code> (§6). <span class="tag confirmed">Confirmed</span></li>
       </ul>
 
       <h3><span class="sub-num">5.4</span>My Setups &amp; diff view <span class="tag confirmed">Confirmed</span></h3>
@@ -401,6 +413,7 @@
         <li>A Setup binds to at most one watchlist; a watchlist is bound by at most one Setup — strictly 1:1.</li>
         <li>The bound watchlist stays fully user-editable between runs; the next run overwrites it again with that run's <strong>full matches only</strong> — near-miss instruments never write to a watchlist.</li>
         <li>A watchlist may simultaneously be a Setup's universe input <em>and</em> its output target — ordering guaranteed by §5.3.</li>
+        <li>If the bound watchlist is deleted while the Setup is active, the Setup transitions to <code>status: 'paused'</code> with <code>paused_reason: 'watchlist_deleted'</code> (§6) — it does <strong>not</strong> keep running with the write silently skipped. The user sees "bound watchlist no longer exists — re-bind or remove the sync" and must act before the Setup resumes. <span class="tag confirmed">Confirmed</span></li>
       </ul>
 
       <h3><span class="sub-num">5.6</span>Notifications <span class="tag confirmed">Confirmed</span></h3>
@@ -413,15 +426,16 @@
         <li><code>match_pct = 100</code> → full match — existing behavior, eligible to sync to a bound watchlist.</li>
         <li><code>threshold ≤ match_pct &lt; 100</code> → near-miss — shown only on My Setups.</li>
         <li><code>match_pct &lt; threshold</code> → not surfaced at all.</li>
-        <li>Whether the threshold is <em>mandatory</em> per Setup or an optional toggle (and what default value it ships with) is <span class="tag open">Open</span> — see §12.</li>
+        <li>The threshold is an <strong>optional toggle</strong>, off by default. When a user turns it on, it defaults to <strong>70%</strong> — surfaced with an info affordance (§14.2) so the default reads as a system assumption, not a requirement. <span class="tag confirmed">Confirmed</span></li>
       </ul>
 
-      <h3><span class="sub-num">5.8</span>Overlap analysis <span class="tag confirmed">Confirmed mechanic</span></h3>
+      <h3><span class="sub-num">5.8</span>Overlap analysis <span class="tag confirmed">Confirmed</span></h3>
       <ul>
-        <li>From My Setups, a user picks any two of their own setups and views the overlap between their <strong>latest full-match lists</strong> (e.g. Setup A's 25 matches vs. Setup B's 30 matches).</li>
+        <li>From My Setups, a user picks <strong>exactly two</strong> of their own setups and views the overlap between their latest results. N-way (3+) comparison is an explicit v2 candidate, not silently dropped — it needs a genuinely different visualization (a matrix/upset plot, not simple cards) and wasn't worth blocking v1 on. <span class="tag confirmed">Confirmed</span></li>
         <li>Computed on demand from each Setup's latest run — <strong>not</strong> scheduled, and not persisted as its own entity.</li>
-        <li>Output: the intersection — instruments matched by both setups.</li>
-        <li>Open, §12: whether near-miss instruments are included in the comparison; whether exclusive-to-A / exclusive-to-B breakdowns render alongside the intersection; whether v1 is capped at exactly two setups or supports more.</li>
+        <li>The comparison includes <strong>both full matches and near-miss instruments</strong>, not full matches only. <span class="tag confirmed">Confirmed</span></li>
+        <li>If one of the two setups has near-miss disabled (or a different threshold set), that setup simply contributes an empty near-miss set to the comparison — the overlap still computes on whatever's available rather than blocking or erroring. <span class="tag confirmed">Confirmed</span></li>
+        <li>Output renders three groups: <strong>Only in A</strong>, <strong>In both</strong> (the intersection), and <strong>Only in B</strong> — the exclusive breakdowns ship alongside the intersection, not just the intersection alone. <span class="tag confirmed">Confirmed</span></li>
       </ul>
     </section>
 
@@ -435,10 +449,11 @@
   user_id                  <span class="type">uuid</span>
   name                     <span class="type">string</span>
   status                   <span class="type">enum</span>(active, paused, draft)
+  <span class="new">paused_reason            string, nullable</span>  <span class="cm">-- e.g. 'watchlist_deleted'; shown in UI when status='paused'</span>
   universe_type            <span class="type">enum</span>              <span class="cm">-- see §8 catalog</span>
-  universe_params          <span class="type">jsonb</span>             <span class="cm">-- instrument_ref, expiry_bucket, strike_band, watchlist_id...</span>
+  universe_params          <span class="type">jsonb</span>             <span class="cm">-- instrument_ref, expiry_bucket, strike_band (default ±5), watchlist_id...</span>
   conditions               <span class="type">ConditionNode[]</span>   <span class="cm">-- flat list, all ANDed — see below</span>
-  <span class="new">near_miss_threshold_pct  number, nullable</span>   <span class="cm">-- null = near-miss bucket off for this Setup (§12)</span>
+  near_miss_threshold_pct  <span class="type">number, nullable</span>  <span class="cm">-- null = off (default); enabled default is 70</span>
   schedule                 <span class="type">jsonb</span>             <span class="cm">-- frequency, session window — shape TBD (§12.1)</span>
   watchlist_binding_id     <span class="type">uuid, nullable, fk</span> -> WatchlistBinding
   created_at, updated_at   <span class="type">timestamp</span></pre></div>
@@ -450,11 +465,12 @@
   source          <span class="type">'contract' | 'underlying' | 'instrument'</span>
   operator        <span class="type">comparison | range | crossover | pct_change | trend</span>
   value           <span class="type">number | {min,max} | {ref_field, lookback}</span>
-  pre_open_valid  <span class="type">boolean</span></pre></div>
+  pre_open_valid  <span class="type">boolean</span>            <span class="cm">-- defaults false until the field is audited (§12.5)</span></pre></div>
 
       <div class="schema-block"><pre><span class="entity">Run</span>
   id              <span class="type">uuid</span>
   setup_id        <span class="type">fk</span>
+  <span class="new">trigger          'scheduled' | 'manual'</span>  <span class="cm">-- 'manual' = user-initiated "Run now" (§5.3)</span>
   triggered_at    <span class="type">timestamp</span>
   status          <span class="type">'completed' | 'blocked_preopen' | 'failed'</span>
   universe_size   <span class="type">int</span>
@@ -572,7 +588,6 @@
       <div class="table-wrap"><table>
         <thead><tr><th>Type</th><th>Category</th><th>Instrument scope</th><th>User param</th></tr></thead>
         <tbody>
-          <tr><td>Whole exchange universe</td><td>A</td><td>All NSE-listed equities</td><td>—</td></tr>
           <tr><td>Nifty 50 / 100 / 500</td><td>A</td><td>Static index membership</td><td>—</td></tr>
           <tr><td>All F&amp;O-eligible stocks</td><td>A</td><td>Equities with a derivatives segment</td><td>—</td></tr>
           <tr><td>Futures — single underlying</td><td>B</td><td>One underlying's futures contract(s)</td><td>Instrument search</td></tr>
@@ -584,6 +599,10 @@
           <tr><td>Portfolio / holdings</td><td>C</td><td>User's current holdings</td><td>—</td></tr>
         </tbody>
       </table></div>
+      <div class="callout confirmed">
+        <div class="dot"></div>
+        <p><strong>Whole-exchange (all-NSE) universe removed</strong> — was Category A, ~2,143 equities, raised open questions on size cap and T2T/surveillance exclusion (was §12.2). Dropped for v1 rather than solved; the indexed catalog above covers the common cases. See §13.</p>
+      </div>
     </section>
 
     <section id="s9">
@@ -607,10 +626,6 @@
           <tr><td>Historical chain OI/IV</td><td><code>charts/timeseries</code> (<code>type: CHAIN</code> / <code>STRIKE</code> / <code>OPT</code>)</td><td>Whole-chain aggregates or single-strike history</td></tr>
         </tbody>
       </table></div>
-      <div class="callout open">
-        <div class="dot"></div>
-        <p><strong>Spot-check before committing</strong> — two fields in this map (refdata's field count, shareholding availability) were corrected mid-investigation from an initial wrong assumption. Treat this table as solid but worth a live re-check on any field before hard-coding it into the schema.</p>
-      </div>
     </section>
 
     <section id="s10">
@@ -622,8 +637,8 @@
           <tr><td>Universe empty at run start</td><td>Run completes as <code>0/0</code>, still notifies — not an error</td></tr>
           <tr><td>Condition field invalid for resolved universe type</td><td>Rejected at <em>build time</em> by the rule builder — field list must intersect with universe type, not caught at run time</td></tr>
           <tr><td>Run blocked pre-open</td><td>Notification states the reason (ineligible condition present), not just "did not run"</td></tr>
-          <tr><td>Upstream API failure mid-run</td><td>Run fails cleanly as <code>status: 'failed'</code>, no partial results persisted — proposed fail-closed default, mirrors the pre-open policy <span class="tag open">Open</span></td></tr>
-          <tr><td>Bound watchlist deleted while Setup active</td><td>Binding treated as broken — pause Setup or skip the output-write step <span class="tag open">Open</span></td></tr>
+          <tr><td>Upstream API failure mid-run</td><td>Run fails cleanly as <code>status: 'failed'</code>, zero partial results persisted, distinct in-app notification from a normal 0-match run — fail-closed, mirrors the pre-open policy <span class="tag confirmed">Confirmed</span></td></tr>
+          <tr><td>Bound watchlist deleted while Setup active</td><td>Setup transitions to <code>status: 'paused'</code>, <code>paused_reason: 'watchlist_deleted'</code> — does not keep running with the write silently skipped <span class="tag confirmed">Confirmed</span></td></tr>
           <tr><td>Setup has no near-miss threshold set</td><td>Near-miss bucket simply stays empty; full-match behavior is unaffected</td></tr>
           <tr><td>Overlap analysis run on setups with disjoint universes</td><td>Not an error — intersection may legitimately be zero; render a zero-state, don't block the comparison</td></tr>
         </tbody>
@@ -634,33 +649,35 @@
       <span class="sec-num">§11</span>
       <h2>Non-functional notes</h2>
       <ul>
-        <li>Indicator calls batch ~200 symbols/call — the run scheduler should chunk large universes (e.g. whole exchange) to this, not call per-symbol.</li>
+        <li>Indicator calls batch ~200 symbols/call — the run scheduler should chunk large universes to this, not call per-symbol. With whole-exchange removed (§8), Nifty 500 (3 chunks) is now the largest equity universe rather than ~2,143 names (11 chunks) — a meaningful reduction in the v1 cost ceiling.</li>
         <li>Fundamentals support a <code>peers=</code> batch param — same chunking principle.</li>
-        <li>Option-chain universes are the most expensive per run (up to hundreds of contracts per underlying); strike-band bounding (§5.1) is the primary cost lever pending §12.1.</li>
+        <li>Option-chain universes are the most expensive per run (up to hundreds of contracts per underlying); strike-band bounding at the confirmed ±5-strike default (§5.1) is the primary cost lever.</li>
         <li>Near-miss (§5.7) requires evaluating <strong>every</strong> condition for <strong>every</strong> instrument in the universe — no short-circuiting on the first false — to compute <code>match_pct</code>. This is strictly more compute than match-only evaluation; factor it into the §12.1 costing pass.</li>
-        <li>Run-history retention is sized by two needs: the diff view (≥2 runs minimum) and whatever audit window product wants — tied to the storage costing pass.</li>
+        <li>On-demand "Run now" (§5.3) adds unscheduled, unpredictable load spikes on top of the regular schedule — factor this into the §12.1 costing pass alongside frequency and tier limits.</li>
+        <li>Run-history retention is sized by two needs: the diff view (≥2 runs minimum — now a confirmed floor, §12.4) and whatever audit window product wants for the final retention window — tied to the storage costing pass.</li>
       </ul>
     </section>
 
     <section id="s12">
       <span class="sec-num">§12</span>
       <h2>Open questions &amp; risks</h2>
+      <p>As of v1.2, every item below is resolved except two genuinely infra-blocked ones (12.1, 12.4), which stay gated on a costing pass, plus 12.8 which remains explicitly out of scope. Resolutions are reflected throughout §5–§11 and in the simulation (§15); this table is the single source of truth for what was decided and why.</p>
       <div class="table-wrap"><table>
-        <thead><tr><th>#</th><th>Question</th><th>Status</th></tr></thead>
+        <thead><tr><th>#</th><th>Question</th><th>Status</th><th>Resolution</th></tr></thead>
         <tbody>
-          <tr><td>12.1</td><td>Run frequency options + tier limits</td><td><span class="tag deferred">Deferred — costing</span></td></tr>
-          <tr><td>12.2</td><td>"Whole exchange" universe size cap / T2T &amp; surveillance exclusion rules</td><td><span class="tag open">Open</span></td></tr>
-          <tr><td>12.3</td><td>Default ATM strike-band width; whether "all strikes" ships as opt-in</td><td><span class="tag open">Open</span></td></tr>
-          <tr><td>12.4</td><td>Run-history retention window</td><td><span class="tag deferred">Deferred — costing</span></td></tr>
-          <tr><td>12.5</td><td><code>pre_open_valid</code> values per condition — needs live data confirmation</td><td><span class="tag open">Open</span></td></tr>
-          <tr><td>12.6</td><td>Mid-run failure / partial-result policy</td><td><span class="tag open">Open (proposed: fail-closed)</span></td></tr>
-          <tr><td>12.7</td><td>Broken watchlist-binding handling (deleted watchlist)</td><td><span class="tag open">Open</span></td></tr>
-          <tr><td>12.8</td><td>Sector-index universes — needs a sourced constituent list to revisit</td><td><span class="tag oos">Out of scope v1</span></td></tr>
-          <tr><td>12.9</td><td>On-demand "run now" trigger, alongside scheduled runs — never discussed, flagging as a likely need</td><td><span class="tag open">Open</span></td></tr>
-          <tr><td>12.10</td><td>Near-miss threshold — mandatory per Setup, or an optional toggle? What default %, if any?</td><td><span class="tag open">Open</span></td></tr>
-          <tr><td>12.11</td><td>Overlap analysis — include near-miss instruments, or full matches only?</td><td><span class="tag open">Open</span></td></tr>
-          <tr><td>12.12</td><td>Overlap analysis — show exclusive-to-A / exclusive-to-B breakdowns alongside the intersection?</td><td><span class="tag open">Open</span></td></tr>
-          <tr><td>12.13</td><td>Overlap analysis — capped at exactly two setups in v1, or N-way?</td><td><span class="tag open">Open</span></td></tr>
+          <tr><td>12.1</td><td>Run frequency options + tier limits</td><td><span class="tag deferred">Deferred — costing</span></td><td>Not resolvable without an infra/billing costing pass.</td></tr>
+          <tr><td>12.2</td><td>"Whole exchange" universe size cap / T2T &amp; surveillance exclusion rules</td><td><span class="tag removed">Removed</span></td><td>Universe type dropped from v1 entirely (§8, §13) — question is moot, nothing to exclude from a universe that doesn't exist.</td></tr>
+          <tr><td>12.3</td><td>Default ATM strike-band width; whether "all strikes" ships as opt-in</td><td><span class="tag confirmed">Confirmed</span></td><td>Default ±5 strikes; "all strikes" is opt-in. UI shows an i-button on the default (§14.2).</td></tr>
+          <tr><td>12.4</td><td>Run-history retention window</td><td><span class="tag deferred">Deferred — costing</span></td><td>Final window still pending costing, but ≥2 runs are always retained as a floor — required for the diff view (§5.4) regardless of the eventual window.</td></tr>
+          <tr><td>12.5</td><td><code>pre_open_valid</code> values per condition — needs live data confirmation</td><td><span class="tag confirmed">Confirmed (action item)</span></td><td>Fail-safe default: any field not yet audited ships as <code>pre_open_valid: false</code>. Backend to audit and correct field-by-field before launch.</td></tr>
+          <tr><td>12.6</td><td>Mid-run failure / partial-result policy</td><td><span class="tag confirmed">Confirmed</span></td><td>Fail-closed: <code>status: 'failed'</code>, zero partial results persisted, distinct notification from a normal 0-match run.</td></tr>
+          <tr><td>12.7</td><td>Broken watchlist-binding handling (deleted watchlist)</td><td><span class="tag confirmed">Confirmed</span></td><td>Setup pauses (<code>status: 'paused'</code>, <code>paused_reason: 'watchlist_deleted'</code>) — never silently skips the write.</td></tr>
+          <tr><td>12.8</td><td>Sector-index universes — needs a sourced constituent list to revisit</td><td><span class="tag oos">Out of scope v1</span></td><td>No change — no constituent-list source exists yet.</td></tr>
+          <tr><td>12.9</td><td>On-demand "run now" trigger, alongside scheduled runs — never discussed, flagging as a likely need</td><td><span class="tag confirmed">Confirmed</span></td><td>Approved for v1. Same semantics as a scheduled run; <code>Run.trigger</code> distinguishes <code>'manual'</code> from <code>'scheduled'</code> (§6).</td></tr>
+          <tr><td>12.10</td><td>Near-miss threshold — mandatory per Setup, or an optional toggle? What default %, if any?</td><td><span class="tag confirmed">Confirmed</span></td><td>Optional, off by default; when enabled, defaults to 70%. UI i-button on the default (§14.2).</td></tr>
+          <tr><td>12.11</td><td>Overlap analysis — include near-miss instruments, or full matches only?</td><td><span class="tag confirmed">Confirmed</span></td><td>Includes near-miss. A setup with near-miss off contributes an empty near-miss set to the comparison rather than blocking it.</td></tr>
+          <tr><td>12.12</td><td>Overlap analysis — show exclusive-to-A / exclusive-to-B breakdowns alongside the intersection?</td><td><span class="tag confirmed">Confirmed</span></td><td>Yes — Only in A / In both / Only in B all render together.</td></tr>
+          <tr><td>12.13</td><td>Overlap analysis — capped at exactly two setups in v1, or N-way?</td><td><span class="tag confirmed">Confirmed</span></td><td>Two only for v1. N-way needs a different visualization (matrix/upset plot) — explicit v2 candidate, not silently dropped.</td></tr>
         </tbody>
       </table></div>
     </section>
@@ -676,16 +693,88 @@
         <li>Sector universes beyond Nifty 50/100/500</li>
         <li>Push / email notification design</li>
         <li>Non-adjacent run comparison in the diff view</li>
+        <li><strong>Whole-exchange (all-NSE) universe scanning</strong> — dropped for cost and T2T/surveillance-exclusion complexity (was §12.2); the Nifty 50/100/500 and All F&amp;O-eligible catalog entries cover v1's needs.</li>
+        <li><strong>N-way (3+) overlap analysis</strong> — v1 ships two-setup comparison only (§5.8, §12.13); N-way needs its own visualization and is an explicit v2 candidate.</li>
       </ul>
       <hr class="rule">
+    </section>
+
+    <section id="s14">
+      <span class="sec-num">§14</span>
+      <h2>Frontend requirements</h2>
+      <p>Setup Builder had no written frontend spec before v1.2 — UI behavior only existed implicitly in the simulation (§15). This section formalizes it. Screens and components below map directly onto that prototype; where this section and the simulation ever disagree, this section is authoritative and the simulation should be updated to match.</p>
+
+      <h3><span class="sub-num">14.1</span>Cross-cutting UI principles <span class="tag confirmed">Confirmed</span></h3>
+      <div class="callout confirmed">
+        <div class="dot"></div>
+        <p><strong>No black-box "draft from a sentence."</strong> Setup creation must never be a single-step "describe it in English → AI drafts the setup" action. Any AI-assisted entry point (e.g. a natural-language prompt suggesting condition ideas) must resolve into the same explicit, editable condition rows as manual creation, and the user reviews and confirms the exact rules before save. The value of a Setup is that it's a deterministic, auditable rule set — if "oversold" silently becomes some hidden RSI threshold the user never sees, near-miss %, overlap analysis, and trust in the matches all break down.</p>
+      </div>
+      <div class="callout confirmed">
+        <div class="dot"></div>
+        <p><strong>Every system-picked default gets an i-button.</strong> Wherever the UI shows a value the system assumed rather than the user explicitly set — the ±5 strike-band default, the 70% near-miss default, any other default introduced later — an <strong>i</strong> info affordance sits right next to it, not buried in a help doc. Click/hover reveals what the assumption is and why.</p>
+      </div>
+
+      <h3><span class="sub-num">14.2</span>My Setups (dashboard) <span class="tag confirmed">Confirmed</span></h3>
+      <ul>
+        <li>One card per Setup: name, <code>matched / total</code> count, near-miss count if the threshold is enabled.</li>
+        <li>Per-card actions: <strong>Open</strong> (detail view), <strong>Edit</strong> (re-enter the builder), <strong>Run now</strong> (§5.3, §12.9) — triggers an on-demand run without disturbing the schedule.</li>
+        <li>A Setup with <code>status: 'paused'</code> shows its <code>paused_reason</code> directly on the card (e.g. "Paused — bound watchlist no longer exists"), not just in the detail view.</li>
+        <li>Empty state: first-run "no setups yet" prompt into the builder.</li>
+      </ul>
+
+      <h3><span class="sub-num">14.3</span>Setup Builder (creation wizard) <span class="tag confirmed">Confirmed</span></h3>
+      <ul>
+        <li>Five steps: <strong>Name &amp; universe → Conditions → Near-miss → Schedule → Output</strong>, matching §4's user flow.</li>
+        <li>Universe step: fixed-catalog picker (§8, now without whole-exchange) — never a free-text universe field. Single-underlying F&amp;O types reveal an instrument search.</li>
+        <li>Conditions step: a searchable condition library (§7, 180+ fields) filtered to what's valid for the chosen universe type; added conditions render as a flat, removable list — no grouping/nesting UI, matching §5.2.</li>
+        <li>Conditions step also computes and shows: which added conditions are/aren't pre-open valid (§12.5), and a live "N of N conditions, all valid for this universe" check before the user can proceed.</li>
+        <li>Near-miss step: an optional toggle (default off); enabling it reveals a threshold slider defaulting to 70%, with the i-button from §14.1 and a live "≥ N of M conditions must be true" readout.</li>
+        <li>Schedule step: frequency picker (options pending §12.1) and the pre-open-block warning when any condition isn't pre-open valid.</li>
+        <li>Output step: optional 1:1 watchlist binding, with the self-narrowing-watchlist warning (§5.3) shown when the bound watchlist is also the universe source.</li>
+        <li>Review/save: a live checks panel (name set, ≥1 condition, pre-open validity, watchlist binding state) must all pass before "Save" is enabled; "Save as draft" is always available regardless of check state.</li>
+      </ul>
+
+      <h3><span class="sub-num">14.4</span>Setup detail <span class="tag confirmed">Confirmed</span></h3>
+      <ul>
+        <li>Tabs: <strong>Matches</strong>, <strong>Near-miss</strong> (only if threshold enabled), <strong>Run history</strong>.</li>
+        <li>Matches tab: latest full-match list plus the run-over-run diff (added/dropped since the previous run only, §5.4) and per-instrument condition transparency.</li>
+        <li>Near-miss tab: per-instrument <code>match_pct</code> and which specific conditions were missed.</li>
+        <li>Run history tab: list of runs with status (completed/blocked_preopen/failed), trigger (scheduled/manual), matched and near-miss counts.</li>
+        <li>A paused Setup shows a persistent banner with its <code>paused_reason</code> and the action needed to resume (re-bind or remove the watchlist sync).</li>
+      </ul>
+
+      <h3><span class="sub-num">14.5</span>Overlap analysis <span class="tag confirmed">Confirmed</span></h3>
+      <ul>
+        <li>Two-setup picker (§5.8, §12.13) — no N-way selection UI in v1.</li>
+        <li>Three result groups: <strong>Only in A</strong>, <strong>In both</strong>, <strong>Only in B</strong> (§12.12), computed across full matches <em>and</em> near-miss (§12.11).</li>
+        <li>If either selected setup has near-miss disabled, the UI notes that its near-miss contribution is empty rather than presenting a silently incomplete comparison.</li>
+        <li>Zero-state (disjoint universes, §10) renders as a legitimate zero intersection, not an error.</li>
+      </ul>
+    </section>
+
+    <section id="s15">
+      <span class="sec-num">§15</span>
+      <h2>Simulation</h2>
+      <p>The reference implementation for everything in §14 is an interactive prototype — <code>Setup Builder</code> — covering all four screens above with real interaction (wizard navigation, live near-miss estimates, condition-library search) via a lightweight template runtime, not a static mockup.</p>
+      <div class="callout confirmed">
+        <div class="dot"></div>
+        <p><strong>Hosted at:</strong> <a href="https://aaryan-say.github.io/AI-mode-Nubra-PRD/ai-setup-builder-design/" target="_blank" rel="noopener">aaryan-say.github.io/AI-mode-Nubra-PRD/ai-setup-builder-design/</a></p>
+      </div>
+      <p>The simulation has its own "PRD flags" toggle that surfaces inline annotations at the exact point in the UI each open question affects — the same §12 numbering as this document. As of v1.2:</p>
+      <ul>
+        <li>Every flag corresponding to a resolved §12 item is updated in place to show the decision, styled as <strong>Resolved</strong> rather than removed outright — the annotation trail stays visible for whoever reviews the simulation against this spec.</li>
+        <li>The whole-exchange universe option is removed from the universe picker, matching §8.</li>
+        <li>12.1 remains flagged as deferred; 12.2 is removed entirely (matching the universe picker change) rather than shown as resolved.</li>
+      </ul>
+      <p>Going forward: this document is authoritative for <em>what</em> and <em>why</em>; the simulation is authoritative for exact interaction detail. When either changes, check the other.</p>
     </section>
 
   </main>
 </div>
 
 <footer>
-  <span>Setup Builder — PRD v1.1</span>
-  <span>Next: design &amp; simulation, built off this spec</span>
+  <span>Setup Builder — PRD v1.2</span>
+  <span>Backend and frontend requirements closed — see §15 for the reference simulation</span>
 </footer>
 
 <script>
